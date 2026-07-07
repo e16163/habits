@@ -1,6 +1,7 @@
 # Habits
 
-Hand-to-face contact classifier using MediaPipe landmarks. Detects habit patterns (specifically hair-touching) via machine learning from webcam feed. Includes data collection pipeline, multi-model training, and live inference visualization.
+Real-time hand-to-face contact classifier using MediaPipe landmarks. Detects habit patterns (specifically hair-touching) via machine learning from webcam feed. Includes data collection pipeline, multi-model training, and live inference visualization. 90% reduction of the habit over 2 months.
+
 
 ## Overview
 
