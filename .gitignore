@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Downloaded MediaPipe assets
+*.task
+
+# Personal training data and fitted models
+*.csv
+*.pkl

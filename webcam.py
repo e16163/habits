@@ -9,6 +9,14 @@ from mediapipe.tasks.python import vision
 from PIL import Image, ImageDraw, ImageFont
 import urllib.request
 from features import build_feature_vector, HAND_POINTS, HEAD_ANCHORS
+from posture_features import build_posture_feature_vector, pose_quality
+from posture_runtime import (
+    assess_posture,
+    create_pose_detector,
+    draw_upper_body_pose,
+    load_posture_model,
+    smoother_for_bundle,
+)
 
 # ── Download models ───────────────────────────────────────────────────────────
 
@@ -44,11 +52,33 @@ face_det = vision.FaceLandmarker.create_from_options(
         num_faces=1, min_face_detection_confidence=0.5,
         min_face_presence_confidence=0.5, min_tracking_confidence=0.5))
 
-CAMERA_INDEX = 2
+# Posture is an optional layer. It activates automatically after
+# train_posture.py creates posture_model.pkl.
+pose_det = None
+posture_model = None
+posture_bundle = None
+posture_smoother = smoother_for_bundle(None)
+if os.path.exists("posture_model.pkl"):
+    try:
+        posture_model, posture_bundle = load_posture_model()
+        posture_smoother = smoother_for_bundle(posture_bundle)
+        pose_det = create_pose_detector()
+        print("Loaded posture_model.pkl — combined posture monitoring enabled.")
+    except Exception as error:
+        print(f"Posture monitoring disabled: {error}")
+
+# The built-in camera is normally index 0. Override for an external camera:
+# QUELL_CAMERA=0 python webcam.py  # OBS Virtual Camera on this setup
+CAMERA_INDEX = int(os.environ.get("QUELL_CAMERA", "1"))
 cap = cv2.VideoCapture(CAMERA_INDEX)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 time.sleep(1.5)
+if not cap.isOpened():
+    raise RuntimeError(
+        f"Could not open camera {CAMERA_INDEX}. Set QUELL_CAMERA=0 or "
+        "QUELL_CAMERA=1 to select an available camera."
+    )
 
 # ── Palette  (BGR) ────────────────────────────────────────────────────────────
 
@@ -180,10 +210,30 @@ while cap.isOpened():
                        data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
     h_res   = hand_det.detect(mp_img)
     f_res   = face_det.detect(mp_img)
+    p_res   = pose_det.detect(mp_img) if pose_det is not None else None
 
     face_lms   = f_res.face_landmarks[0] if f_res.face_landmarks else None
     prediction = 0
     confidence = 0.0
+
+    # Optional posture layer. A dwell-time smoother keeps transient movements
+    # from flashing a warning.
+    posture_probability = None
+    posture_assessment = None
+    posture_quality = 0.0
+    posture_bad = False
+    if p_res is not None and p_res.pose_landmarks:
+        pose_lms = p_res.pose_landmarks[0]
+        world_lms = p_res.pose_world_landmarks[0] if p_res.pose_world_landmarks else None
+        posture_quality = pose_quality(pose_lms)
+        draw_upper_body_pose(frame, pose_lms, color=(45, 75, 90))
+        if posture_quality >= 0.55:
+            posture_feat = build_posture_feature_vector(pose_lms, world_lms)
+            posture_assessment = assess_posture(
+                posture_model, posture_bundle, posture_feat
+            )
+            posture_probability = posture_assessment["probability"]
+    posture_bad = posture_smoother.update(posture_probability, now)
 
     # Skeleton — very subtle
     for lms in h_res.hand_landmarks:
@@ -226,6 +276,8 @@ while cap.isOpened():
     # Vignette when touching
     if smoothed:
         frame = vignette(frame, RED_BGR, 0.28 + 0.08*math.sin(now*7))
+    elif posture_bad:
+        frame = vignette(frame, (20, 150, 235), 0.16)
 
     # ── TOP BAR ───────────────────────────────────────────────────────────────
 
@@ -286,6 +338,22 @@ while cap.isOpened():
     frame = pil_text(frame, f"{int(confidence*100)}%",
                      (bar_x2+8, bar_y-6), F_SM, DIM_RGB)
 
+    # Posture status — visible only when a posture model has been trained.
+    if pose_det is not None:
+        if posture_probability is None:
+            posture_text = "POSTURE  NO POSE"
+            posture_color = DIM_RGB
+        elif posture_assessment and posture_assessment["is_unfamiliar"]:
+            posture_text = "POSTURE  UNFAMILIAR"
+            posture_color = (245, 175, 75)
+        elif posture_bad:
+            posture_text = f"POSTURE  RESET  {int((posture_smoother.ema or 0)*100)}%"
+            posture_color = (245, 165, 75)
+        else:
+            posture_text = f"POSTURE  GOOD  {int((1-(posture_smoother.ema or 0))*100)}%"
+            posture_color = MINT_RGB
+        frame = pil_text(frame, posture_text, (bar_x1, by+56), F_SM, posture_color)
+
     # Session time — right
     sess_str = f"{mm:02d}:{ss:02d}"
     frame = pil_text(frame, sess_str,   (W-pad-tw(sess_str,F_MED), by+14), F_MED, WHITE_RGB)
@@ -296,5 +364,7 @@ while cap.isOpened():
         break
 
 cap.release()
+if pose_det is not None:
+    pose_det.close()
 cv2.destroyAllWindows()
 print(f"\nDone — {touch_count} touch{'es' if touch_count!=1 else ''} in {mm:02d}:{ss:02d}")

@@ -1,6 +1,6 @@
 # Habits
 
-Real-time hand-to-face contact classifier using MediaPipe landmarks. Detects habit patterns (specifically hair-touching) via machine learning from webcam feed. Includes data collection pipeline, multi-model training, and live inference visualization. 90% reduction of the habit over 2 months.
+Real-time hand-to-face contact and seated-posture classifiers using MediaPipe landmarks. Detects hair-touching and personalized good/bad posture from a webcam, with separate data-collection, training, and live-inference pipelines. 90% reduction of the hair-touching habit over 2 months.
 
 
 ## Overview
@@ -10,14 +10,37 @@ Habits implements an end-to-end ML workflow:
 2. **Training**: Multi-model evaluation (Random Forest, Gradient Boosting, Logistic Regression) with session-aware train/test splitting
 3. **Inference**: Live prediction display during data collection with model confidence scoring
 
-The system extracts 120 distance-based features from hand keypoints to head anchors, normalized by face height. Session IDs enable honest cross-validation by grouping frames temporally.
+The hair-touching system extracts 136 hand-shape and depth-aware hand-to-head features. The optional posture layer extracts normalized 2D/3D upper-body landmarks plus interpretable alignment features. Session IDs enable honest evaluation by keeping temporally adjacent frames together.
+
+## Posture Module
+
+The posture module is personalized: you record examples of your own good and bad seated posture, then train a separate `posture_model.pkl`. It includes:
+
+- Normalized image and MediaPipe world landmarks for the head, shoulders, elbows, and hips
+- Engineered shoulder, hip, torso, neck, centering, and depth features
+- Pose-visibility gating so partially hidden bodies are not recorded or scored
+- Session-held-out model evaluation when multiple recording sessions exist
+- Exponential probability smoothing, separate warning/recovery thresholds, and dwell times
+- A conservative geometry preview before a personal model has been trained
+- Up to five-fold stratified group validation that keeps complete sessions together
+- Extra Trees, Random Forest, robust linear, and soft-voting ensemble comparison
+- Cross-validated decision-threshold tuning instead of assuming 50% is optimal
+- A robust personal good-posture profile for baseline-relative explanations
+- Unfamiliar-pose detection to flag inputs outside the model's training range
+- Full-data refitting after validation, so the final model learns from every session
+
+### Front view versus side view
+
+A front-facing webcam is sufficient for a useful personalized classifier. It is strongest at detecting sideways torso lean, uneven shoulders, head tilt/centering, and the overall visual pattern of slouching. MediaPipe's world landmarks provide some depth evidence as well.
+
+A side view is recommended when forward-head posture or rounded-back slouch is the main target. Those movements are much less ambiguous in profile. Do not mix front and side frames casually in a small dataset: train with a consistent front view first, or collect several labeled sessions of each view so the model can learn both.
 
 ## Architecture
 
 ### Data Collection (collect.py)
 - Webcam capture with OpenCV
 - Parallel MediaPipe detection: 21-point hand landmarks + 468-point face landmarks
-- Feature vector: Euclidean distances from 10 hand keypoints to 12 head anchors (120 total)
+- Feature vector: 63 normalized hand coordinates + 72 depth-aware hand-to-head values + 1 global depth cue (136 total)
 - Session ID tracking (YYYYMMDD_HHMMSS) for train/test grouping
 - Optional: Live model predictions overlaid on camera feed
 - Output: Appends to `landmarks.csv`
@@ -35,9 +58,10 @@ The system extracts 120 distance-based features from hand keypoints to head anch
 
 ### Feature Extraction (features.py)
 - Hand points: [0, 4, 8, 12, 16, 20] (fingertips + wrist)
-- Head anchors: [10, 152, 6, 234, 454, 116, 345, 172, 397, 176, 400, 9]
-- Distance normalization: divide by face height to achieve scale invariance
-- 120 total features (10 hand × 12 head)
+- Head anchors: [10, 151, 234, 454, 127, 356] (forehead, skull, temples, and head sides)
+- Hand normalization: wrist-centered and scaled by palm size
+- Depth features: 3D distance and z-offset for each hand point/head anchor pair
+- 136 total features
 
 ## Installation
 
@@ -65,7 +89,7 @@ python collect.py
 - **Q** — Quit without saving
 
 **Output:**
-- `landmarks.csv`: Appends rows with 120 features + session ID + label
+- `landmarks.csv`: Appends rows with 136 features + session ID + label
 - Displays live predictions if `quell_model.pkl` exists
 - Shows sample counts at bottom
 
@@ -108,17 +132,48 @@ pred = model.predict(feat.reshape(1, -1))[0]
 conf = model.predict_proba(feat.reshape(1, -1))[0][int(pred)]
 ```
 
+### Collect and Train Posture
+
+Keep your head and both shoulders visible. Hips are optional: when they are in frame the model adds torso alignment and depth cues; when they are below a normal desk-camera crop those inputs are masked and the head/shoulder model continues working. Record both classes in varied but realistic positions, lighting, and clothing. Several shorter sessions are more valuable than one long session.
+
+```bash
+# Camera index defaults to 1 (the physical webcam on this setup).
+python collect_posture.py --view front
+
+# Repeat collection in at least 3 sessions, then train.
+python train_posture.py
+
+# Run posture by itself.
+python posture.py
+```
+
+Camera index 0 is OBS Virtual Camera on this setup. To use OBS intentionally,
+pass `--camera 0`. The combined monitor can be overridden in the same way with
+`QUELL_CAMERA=0 python webcam.py`.
+
+Posture collection controls:
+
+- **G** — hold to record good posture
+- **B** — hold to record bad posture
+- **C** — clear samples from the current run
+- **S** — save and quit
+- **Q** — discard this run
+
+After `posture_model.pkl` exists, `webcam.py` automatically enables the posture layer alongside hair-touch detection.
+
+For a reliable first model, collect at least three sessions on different days or after moving naturally between runs. In each session, capture normal variation—not only one rigid "good" pose and one exaggerated "bad" pose. Collection is rate-limited to roughly eight samples per second to reduce highly correlated duplicate frames. Training reports cross-validated balanced accuracy, bad-posture F1, pose diversity, a tuned threshold, and the most useful features. The output is behavioral feedback, not a medical diagnosis.
+
 ## Data Format
 
 ### landmarks.csv
 ```csv
-hand_0_head_0,hand_0_head_1,...,hand_9_head_11,session,label
+image-hand and depth feature columns...,session,label
 12.3,14.5,...,35.2,20250707_143022,1
 11.2,13.8,...,34.1,20250707_143022,1
 45.6,48.2,...,62.3,20250707_143022,0
 ```
 
-Column count: 122 (120 features + session + label)
+Column count: 138 (136 features + session + label)
 
 ### quell_model.pkl
 Python pickle containing:
