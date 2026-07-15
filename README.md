@@ -1,222 +1,350 @@
 # Habits
 
-Real-time hand-to-face contact and seated-posture classifiers using MediaPipe landmarks. Detects hair-touching and personalized good/bad posture from a webcam, with separate data-collection, training, and live-inference pipelines. 90% reduction of the hair-touching habit over 2 months.
+Personalized, real-time webcam models for detecting hair-touching and seated
+posture. The project uses MediaPipe landmarks, scikit-learn classifiers, and
+OpenCV interfaces for data collection and live feedback.
 
+The two models are independent:
 
-## Overview
+- **Hair touching:** recognizes when either hand is near the hair/head region.
+- **Posture:** learns your own examples of good and bad seated posture.
 
-Habits implements an end-to-end ML workflow:
-1. **Collection**: Real-time hand and face landmark detection, feature extraction, session-based labeling
-2. **Training**: Multi-model evaluation (Random Forest, Gradient Boosting, Logistic Regression) with session-aware train/test splitting
-3. **Inference**: Live prediction display during data collection with model confidence scoring
+Neither model sends video to a server. Frames are processed locally. The saved
+CSV datasets and pickle files are ignored by Git because they contain personal
+training data and machine-specific models.
 
-The hair-touching system extracts 136 hand-shape and depth-aware hand-to-head features. The optional posture layer extracts normalized 2D/3D upper-body landmarks plus interpretable alignment features. Session IDs enable honest evaluation by keeping temporally adjacent frames together.
+## Features
 
-## Posture Module
+### Hair-touching model
 
-The posture module is personalized: you record examples of your own good and bad seated posture, then train a separate `posture_model.pkl`. It includes:
+- MediaPipe Hand Landmarker and Face Landmarker
+- Two-hand tracking with face/head reference points
+- 136 features: normalized hand shape, 3D hand-to-head distances, z-offsets,
+  and a global wrist-to-nose depth cue
+- Session-aware evaluation to reduce leakage between adjacent video frames
+- Random Forest, Gradient Boosting, and Logistic Regression comparison
+- Live confidence smoothing and touch-event counting
 
-- Normalized image and MediaPipe world landmarks for the head, shoulders, elbows, and hips
-- Engineered shoulder, hip, torso, neck, centering, and depth features
-- Pose-visibility gating so partially hidden bodies are not recorded or scored
-- Session-held-out model evaluation when multiple recording sessions exist
-- Exponential probability smoothing, separate warning/recovery thresholds, and dwell times
-- A conservative geometry preview before a personal model has been trained
-- Up to five-fold stratified group validation that keeps complete sessions together
-- Extra Trees, Random Forest, robust linear, and soft-voting ensemble comparison
-- Cross-validated decision-threshold tuning instead of assuming 50% is optimal
-- A robust personal good-posture profile for baseline-relative explanations
-- Unfamiliar-pose detection to flag inputs outside the model's training range
-- Full-data refitting after validation, so the final model learns from every session
+### Advanced posture model
 
-### Front view versus side view
+- MediaPipe Full Pose Landmarker
+- 71 adaptive 2D/3D and biomechanical features
+- Normalized head, ear, shoulder, elbow, and optional hip landmarks
+- Shoulder slope, head centering, neck tilt, head depth, torso lean, hip slope,
+  and torso-depth measurements
+- Adaptive desk-camera mode: only the nose and both shoulders are required
+- Low-visibility landmarks are masked instead of injecting unstable estimates
+- Hips add torso information when visible; hip-dependent readings become `n/a`
+  when they are below the frame
+- Collection limited to about eight samples per second to reduce duplicate data
+- Up to five-fold stratified group validation with complete sessions held out
+- Extra Trees, Random Forest, robust Logistic Regression, and soft-voting
+  ensemble comparison
+- Cross-validated decision-threshold tuning
+- Full-data refitting after model selection
+- Personalized good-posture baseline and issue explanations
+- Unfamiliar-pose detection for inputs outside the training distribution
+- Exponential smoothing, hysteresis, and warning/recovery dwell times
+- Live shoulder, torso, neck, head-offset, and depth readings
 
-A front-facing webcam is sufficient for a useful personalized classifier. It is strongest at detecting sideways torso lean, uneven shoulders, head tilt/centering, and the overall visual pattern of slouching. MediaPipe's world landmarks provide some depth evidence as well.
+## Project Structure
 
-A side view is recommended when forward-head posture or rounded-back slouch is the main target. Those movements are much less ambiguous in profile. Do not mix front and side frames casually in a small dataset: train with a consistent front view first, or collect several labeled sessions of each view so the model can learn both.
-
-## Architecture
-
-### Data Collection (collect.py)
-- Webcam capture with OpenCV
-- Parallel MediaPipe detection: 21-point hand landmarks + 468-point face landmarks
-- Feature vector: 63 normalized hand coordinates + 72 depth-aware hand-to-head values + 1 global depth cue (136 total)
-- Session ID tracking (YYYYMMDD_HHMMSS) for train/test grouping
-- Optional: Live model predictions overlaid on camera feed
-- Output: Appends to `landmarks.csv`
-
-### Training (train.py)
-- Loads and normalizes feature matrix
-- Detects multiple sessions; uses `GroupShuffleSplit` (80/20 split) if available
-- Falls back to stratified random split for single-session data
-- Trains three pipelines:
-  - Random Forest: 200 trees, max_depth=10, balanced class weights
-  - Gradient Boosting: 200 estimators, max_depth=4, subsample=0.8
-  - Logistic Regression: StandardScaler preprocessing, C=0.1
-- Reports accuracy, confusion matrix, classification report per model
-- Saves best model (by test accuracy) to `quell_model.pkl`
-
-### Feature Extraction (features.py)
-- Hand points: [0, 4, 8, 12, 16, 20] (fingertips + wrist)
-- Head anchors: [10, 151, 234, 454, 127, 356] (forehead, skull, temples, and head sides)
-- Hand normalization: wrist-centered and scaled by palm size
-- Depth features: 3D distance and z-offset for each hand point/head anchor pair
-- 136 total features
+| File | Purpose |
+| --- | --- |
+| `features.py` | Hair-touching feature extraction |
+| `collect.py` | Hair-touching data collection |
+| `train.py` | Hair-touching model training |
+| `webcam.py` | Combined hair-touching monitor with optional posture layer |
+| `posture_features.py` | Adaptive posture features and interpretable metrics |
+| `posture_runtime.py` | Pose detector, model validation, uncertainty, and smoothing |
+| `collect_posture.py` | Good/bad posture data collection |
+| `train_posture.py` | Group validation, ensemble selection, calibration, and profiling |
+| `posture.py` | Standalone live posture monitor |
 
 ## Installation
 
-```bash
-pip install opencv-python mediapipe scikit-learn pandas numpy
+Python 3.10 or newer is recommended.
 
+```bash
+python -m pip install opencv-python mediapipe scikit-learn pandas numpy pillow
+```
+
+The first relevant run downloads MediaPipe `.task` model assets. The hand,
+face, and full-pose assets are stored locally and ignored by Git.
+
+## Camera Selection on macOS
+
+OpenCV uses numeric camera indices. macOS assigns these indices dynamically,
+so the number does not reliably identify a particular camera.
+
+On the current setup:
+
+- Camera `0` has appeared as OBS Virtual Camera.
+- Camera `1` may be the Mac camera or an iPhone Continuity Camera, depending on
+  what macOS exposes when the program starts.
+
+The posture tools currently default to camera `1`:
+
+```bash
+python collect_posture.py --camera 1 --view front
+python posture.py --camera 1
+```
+
+To try another exposed camera:
+
+```bash
+python collect_posture.py --camera 0 --view front
+```
+
+The combined monitor uses the `QUELL_CAMERA` environment variable:
+
+```bash
+QUELL_CAMERA=1 python webcam.py
+```
+
+If macOS selects an iPhone unexpectedly, stop the program, disconnect
+Continuity Camera on the iPhone, and restart. To disable it permanently on the
+iPhone, open **Settings → General → AirPlay & Continuity → Continuity Camera**.
+
+## Hair-Touching Workflow
+
+### 1. Collect data
+
+```bash
 python collect.py
 ```
 
-First run auto-downloads MediaPipe task files (~40MB total).
+Controls:
 
-## Usage
+- **T:** hold to record touching hair (`1`)
+- **N:** hold to record not touching (`0`)
+- **C:** clear samples from the current run
+- **S:** save and quit
+- **Q:** discard the current run
 
-### Collect Data
+Data is appended to `landmarks.csv`. Each run receives a session ID.
 
-```bash
-python collect.py
-```
-
-**Controls:**
-- **T** — Record "touching hair" (label: 1)
-- **N** — Record "not touching" (label: 0)
-- **C** — Clear session data (doesn't affect saved CSV)
-- **S** — Save and quit
-- **Q** — Quit without saving
-
-**Output:**
-- `landmarks.csv`: Appends rows with 136 features + session ID + label
-- Displays live predictions if `quell_model.pkl` exists
-- Shows sample counts at bottom
-
-### Train Model
+### 2. Train
 
 ```bash
 python train.py
 ```
 
-**Output:**
-- Accuracy metrics (train/test %)
-- Confusion matrix
-- Classification report per model
-- `quell_model.pkl`: Best performing pipeline
+The best evaluated pipeline is saved to `quell_model.pkl`.
 
-Example:
-```
-Train: 450   Test: 112
-
-Training Random Forest …
-  Train: 94.2%   Test: 88.9%   Gap: 5.3%
-
-Training Gradient Boosting …
-  Train: 93.8%   Test: 91.2%   Gap: 2.6%
-
-Best: Gradient Boosting (test 91.2% / train 93.8%)
-```
-
-### Use Model
-
-```python
-import pickle
-from features import build_feature_vector
-
-model = pickle.load(open("quell_model.pkl", "rb"))["pipeline"]
-
-# Single prediction
-feat = build_feature_vector(hand_landmarks, face_landmarks)
-pred = model.predict(feat.reshape(1, -1))[0]
-conf = model.predict_proba(feat.reshape(1, -1))[0][int(pred)]
-```
-
-### Collect and Train Posture
-
-Keep your head and both shoulders visible. Hips are optional: when they are in frame the model adds torso alignment and depth cues; when they are below a normal desk-camera crop those inputs are masked and the head/shoulder model continues working. Record both classes in varied but realistic positions, lighting, and clothing. Several shorter sessions are more valuable than one long session.
+### 3. Run
 
 ```bash
-# Camera index defaults to 1 (the physical webcam on this setup).
-python collect_posture.py --view front
-
-# Repeat collection in at least 3 sessions, then train.
-python train_posture.py
-
-# Run posture by itself.
-python posture.py
+python webcam.py
 ```
 
-Camera index 0 is OBS Virtual Camera on this setup. To use OBS intentionally,
-pass `--camera 0`. The combined monitor can be overridden in the same way with
-`QUELL_CAMERA=0 python webcam.py`.
+`webcam.py` requires `quell_model.pkl`. If `posture_model.pkl` also exists and
+matches the current posture feature schema, the posture layer activates
+automatically.
 
-Posture collection controls:
+## Posture Workflow
 
-- **G** — hold to record good posture
-- **B** — hold to record bad posture
-- **C** — clear samples from the current run
-- **S** — save and quit
-- **Q** — discard this run
+### Framing
 
-After `posture_model.pkl` exists, `webcam.py` automatically enables the posture layer alongside hair-touch detection.
+Use your normal seated position. Keep these landmarks visible:
 
-For a reliable first model, collect at least three sessions on different days or after moving naturally between runs. In each session, capture normal variation—not only one rigid "good" pose and one exaggerated "bad" pose. Collection is rate-limited to roughly eight samples per second to reduce highly correlated duplicate frames. Training reports cross-validated balanced accuracy, bad-posture F1, pose diversity, a tuned threshold, and the most useful features. The output is behavioral feedback, not a medical diagnosis.
+- Your head/nose
+- Your complete left shoulder
+- Your complete right shoulder
 
-## Data Format
+Hips are optional. If visible, they provide better torso-lean and torso-depth
+measurements. If hidden by a normal desk-camera crop, the model continues with
+head, neck, shoulder, and upper-body depth cues.
 
-### landmarks.csv
-```csv
-image-hand and depth feature columns...,session,label
-12.3,14.5,...,35.2,20250707_143022,1
-11.2,13.8,...,34.1,20250707_143022,1
-45.6,48.2,...,62.3,20250707_143022,0
+### 1. Collect at least three sessions
+
+```bash
+python collect_posture.py --camera 1 --view front
 ```
 
-Column count: 138 (136 features + session + label)
+Controls:
 
-### quell_model.pkl
-Python pickle containing:
-```python
-{"pipeline": <sklearn.pipeline.Pipeline>}
+- **G:** hold to record good posture (`0`)
+- **B:** hold to record bad posture (`1`)
+- **C:** clear samples from the current run
+- **S:** save and quit
+- **Q:** discard the current run
+
+Every session should include both labels. Record at least 40 samples of each
+class, although several hundred varied samples per class are preferable. Avoid
+recording one perfectly still pose for a long time.
+
+For good posture, include comfortable natural variation. For bad posture,
+include the patterns you want the system to recognize, such as:
+
+- Forward head
+- Rounded or collapsed shoulders
+- Leaning to either side
+- Slumping lower in the chair
+- Moving too close to the display
+
+Run collection at least three separate times so validation can hold out entire
+sessions. Vary lighting, clothing, chair position, and natural movement.
+
+Samples are appended to `posture_landmarks.csv` with a session ID, view type,
+71 features, and the label.
+
+### 2. Train the advanced model
+
+```bash
+python train_posture.py --view front
 ```
 
-## Design Notes
+Training reports:
 
-**Session Awareness**: Each `collect.py` run generates a unique session ID. `train.py` detects multiple sessions and uses `GroupShuffleSplit` to prevent data leakage (same person, same pose in both train and test). Single-session datasets fall back to stratified random split.
+- Session-grouped cross-validated balanced accuracy
+- Accuracy and bad-posture F1
+- Pose-diversity ratio
+- Tuned decision threshold
+- Confusion matrix
+- Most influential features
+- Selected classifier or ensemble
 
-**Feature Normalization**: Distance features normalized by face height for scale invariance. Random Forest doesn't require feature scaling; Logistic Regression uses StandardScaler in pipeline.
+The selected model is refit on every labeled sample and saved as
+`posture_model.pkl`. The bundle also contains the feature schema version,
+personal good/bad profiles, robust feature ranges, novelty limit, and evaluation
+summary.
 
-**Class Imbalance**: Random Forest and Logistic Regression use `class_weight="balanced"` to handle label imbalance.
+### 3. Run posture by itself
 
-## Common Issues
+```bash
+python posture.py --camera 1
+```
 
-**Low accuracy (<80%)**
-- Collect more samples (aim for 500+)
-- Collect across multiple sessions and lighting conditions
-- Verify labels are accurate during collection
+Before training, `posture.py` uses conservative geometry guidance. After
+training, it uses the personalized model, calibrated threshold, personal
+baseline, novelty detection, and temporal smoothing.
 
-**High train/test gap (>10%)**
-- Reduce model complexity (e.g., max_depth=8 for RF)
-- Collect more varied data
-- Check for systematic labeling errors
+### 4. Run both models together
 
-**"No hand detected"**
-- Ensure full hand visibility in frame
-- Improve lighting
-- Move closer to camera
+```bash
+QUELL_CAMERA=1 python webcam.py
+```
+
+The combined monitor loads `quell_model.pkl` and enables posture automatically
+when a compatible `posture_model.pkl` is present.
+
+## Front View or Side View?
+
+A front view is useful for shoulder balance, head centering, neck tilt,
+sideways torso lean, distance changes, and personalized visual slouch patterns.
+It is the recommended starting point for a laptop webcam.
+
+A side view is better for forward-head posture, rounded-back slouch, and
+sagittal alignment. Use a consistent view while building a small dataset. Do
+not casually mix front and side frames into one model. If you want a side model,
+collect multiple side sessions and train with:
+
+```bash
+python collect_posture.py --camera 1 --view side
+python train_posture.py --view side
+```
+
+This replaces `posture_model.pkl` with the side-view model, so rename or back up
+an existing front-view model first if you want to keep both.
+
+## Data and Model Files
+
+### Hair touching
+
+- `landmarks.csv`: 136 features + session + label
+- `quell_model.pkl`: selected scikit-learn pipeline
+
+### Posture
+
+- `posture_landmarks.csv`: 71 features + session + view + label
+- `posture_model.pkl`: fitted estimator, threshold, schema, profiles, novelty
+  ranges, and evaluation metadata
+
+CSV datasets, pickle models, MediaPipe task assets, and Python caches are ignored
+by `.gitignore`.
+
+## Troubleshooting
+
+### It says the pose is not in frame
+
+- Restart the collector to ensure the latest adaptive feature code is loaded.
+- Keep the nose and both shoulders visible; hips are not required.
+- Make sure the selected camera shows you rather than OBS or another source.
+- Improve lighting and avoid cutting either shoulder off at the window edge.
+
+### It opens the iPhone camera
+
+macOS selected Continuity Camera for that OpenCV index. Stop the program,
+disconnect the iPhone camera, and restart. Camera numbers may change after the
+available devices change.
+
+### It shows the OBS logo or a camera-off screen
+
+That camera index points to OBS Virtual Camera. Try the other index, or start an
+OBS virtual-camera feed intentionally.
+
+### `Could not open camera N`
+
+The index is not currently exposed or another application owns the camera. Try
+`--camera 0` or `--camera 1`, close other camera applications, and confirm macOS
+camera permission for the terminal/Python application.
+
+### The posture CSV is missing current features
+
+The adaptive upper-body update changed the posture feature schema. Move or
+delete the old `posture_landmarks.csv`, recollect, and retrain. Do not combine
+rows from different feature schemas.
+
+### The posture model predates adaptive features
+
+Run `python train_posture.py --view front` again using a current 71-feature CSV.
+Old model bundles are rejected instead of being used with incompatible feature
+semantics.
+
+### Low real-world accuracy
+
+- Collect more sessions, not merely more adjacent frames.
+- Include both labels in every session.
+- Record realistic borderline examples.
+- Keep the camera position reasonably consistent between collection and use.
+- Review the session-grouped metrics rather than training accuracy.
+- Treat an implausibly perfect score from one session as possible leakage or
+  insufficient variation.
+
+### MediaPipe feedback-manager warnings
+
+Messages about feedback tensors being disabled are normal for these task files
+and do not mean inference failed.
+
+## Technical Notes
+
+- Hair features are wrist-centered and normalized by palm scale.
+- Posture image and world landmarks are shoulder-centered and normalized by
+  shoulder width.
+- Pose landmarks below the visibility threshold are replaced with zeroed
+  coordinates, while aggregate and hip-specific visibility are retained as
+  model inputs.
+- Hip-dependent features are disabled when hip visibility is below the adaptive
+  threshold.
+- A low-visibility score is retained as a model input so the estimator can learn
+  the limits of the camera setup.
+- Session grouping prevents temporally adjacent frames from appearing in both
+  training and validation folds.
+- The final posture estimator is trained on all samples only after model and
+  threshold selection are complete.
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - OpenCV 4.5+
-- MediaPipe 0.8+
-- scikit-learn 1.0+
-- pandas 1.3+, numpy 1.20+
+- MediaPipe 0.10+
+- scikit-learn with `StratifiedGroupKFold` support
+- pandas, NumPy, and Pillow
 
-## Performance
+## Safety
 
-- Collection: ~30 FPS (GPU optional)
-- Feature extraction: ~5ms per frame
-- Training: ~2–5 seconds per model (450 training samples)
-- Inference: <1ms per prediction
+Posture feedback is behavioral guidance, not a medical diagnosis. Body
+proportions, disability, pain, camera perspective, and comfortable posture vary
+between people. Train labels around your own comfortable baseline and consult a
+qualified professional for medical or ergonomic concerns.
