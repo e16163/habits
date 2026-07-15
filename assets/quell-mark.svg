@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Quell mark</title>
+  <desc id="desc">A broken circular Q representing interruption, reset, and forward progress.</desc>
+  <defs>
+    <linearGradient id="quell-gradient" x1="20" y1="18" x2="108" y2="112" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#49E0AC"/>
+      <stop offset="0.52" stop-color="#61D6D5"/>
+      <stop offset="1" stop-color="#5F94FF"/>
+    </linearGradient>
+  </defs>
+  <circle cx="61" cy="58" r="36" fill="none" stroke="url(#quell-gradient)" stroke-width="12" stroke-linecap="round" stroke-dasharray="184 43" transform="rotate(-31 61 58)"/>
+  <path d="M78 76L106 105" fill="none" stroke="url(#quell-gradient)" stroke-width="12" stroke-linecap="round"/>
+  <path d="M42 59C48 51 55 48 63 48C72 48 78 52 83 59" fill="none" stroke="#F4F8FF" stroke-opacity="0.92" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="38" cy="82" r="4.5" fill="#49E0AC"/>
+</svg>

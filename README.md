@@ -1,5 +1,7 @@
 # Habits
 
+![Quell — habit awareness and posture intelligence](assets/quell-logo.svg)
+
 Personalized, real-time webcam models for detecting hair-touching and seated
 posture. The project uses MediaPipe landmarks, scikit-learn classifiers, and
 OpenCV interfaces for data collection and live feedback.
@@ -60,6 +62,11 @@ training data and machine-specific models.
 | `collect_posture.py` | Good/bad posture data collection |
 | `train_posture.py` | Group validation, ensemble selection, calibration, and profiling |
 | `posture.py` | Standalone live posture monitor |
+| `quell_app.py` | Unified modern dashboard for both models |
+| `quell_stats.py` | Local session history, reduction metrics, and interventions |
+| `pyproject.toml` | Installable `quell` command and Python package metadata |
+| `assets/quell-logo.svg` | Primary horizontal Quell logo |
+| `assets/quell-mark.svg` | Standalone scalable app/logo mark |
 
 ## Installation
 
@@ -67,6 +74,12 @@ Python 3.10 or newer is recommended.
 
 ```bash
 python -m pip install opencv-python mediapipe scikit-learn pandas numpy pillow
+```
+
+To install the unified `quell` command from this repository:
+
+```bash
+python -m pip install -e .
 ```
 
 The first relevant run downloads MediaPipe `.task` model assets. The hand,
@@ -105,6 +118,73 @@ QUELL_CAMERA=1 python webcam.py
 If macOS selects an iPhone unexpectedly, stop the program, disconnect
 Continuity Camera on the iPhone, and restart. To disable it permanently on the
 iPhone, open **Settings → General → AirPlay & Continuity → Continuity Camera**.
+
+## Unified Quell App
+
+The recommended interface packages both models into one local desktop
+dashboard:
+
+```bash
+# After `python -m pip install -e .`
+quell --camera 1
+
+# Or run it directly without installing the command.
+python quell_app.py --camera 1
+```
+
+The app provides one camera view and three coordinated layers:
+
+- **Hair habit:** live probability, touch count, touches per hour, current
+  touch-free streak, historical best streak, rate trend, and reduction from
+  baseline
+- **Posture:** alignment score, good-posture percentage, correction count,
+  shoulder slope, neck tilt, head offset, head depth, torso lean when hips are
+  visible, pose quality, and unfamiliar-pose state
+- **Interventions:** non-destructive habit interruption, sustained-posture
+  resets, recovery timing, prompt-success rate, and a 25-minute microbreak
+
+Controls:
+
+- **P:** pause/resume session measurement
+- **D:** toggle more detailed landmark overlays
+- **M:** toggle mirror mode
+- **F:** toggle fullscreen
+- **Q**, **Esc:** save the eligible session and quit
+
+### Behavior-change statistics
+
+Sessions longer than ten seconds are saved locally to `quell_history.json`.
+The file is ignored by Git. Sessions of at least one minute contribute to trend
+and baseline statistics.
+
+- The first three qualifying sessions establish the hair-touch-rate baseline.
+- Reduction is calculated from current touches/hour versus that baseline.
+- A hair intervention is considered successful when the hands reset within 12
+  seconds of the prompt.
+- A posture intervention appears after ten sustained seconds of bad posture and
+  records time-to-recovery.
+- The dashboard reports intervention success rate and average recovery time.
+
+The app never closes tabs or performs punitive actions. Interventions are
+on-screen, brief, and designed around returning to a neutral behavior rather
+than demanding rigid stillness.
+
+### Model availability
+
+- If `quell_model.pkl` is missing, the dashboard remains usable but shows that
+  the hair model needs training.
+- If `posture_model.pkl` is missing or incompatible, the app uses conservative
+  geometry guidance and labels the posture model state accordingly.
+- Once compatible models exist, they are loaded automatically at startup.
+
+### UI preview without camera access
+
+The demo renderer initializes no camera or MediaPipe detectors:
+
+```bash
+python quell_app.py --demo
+python quell_app.py --demo --screenshot dashboard.png
+```
 
 ## Hair-Touching Workflow
 
@@ -262,7 +342,8 @@ an existing front-view model first if you want to keep both.
   ranges, and evaluation metadata
 
 CSV datasets, pickle models, MediaPipe task assets, and Python caches are ignored
-by `.gitignore`.
+by `.gitignore`. `quell_history.json` is also ignored because it contains local
+behavior statistics.
 
 ## Troubleshooting
 

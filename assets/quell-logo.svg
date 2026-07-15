@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 144" role="img" aria-labelledby="title desc">
+  <title id="title">Quell</title>
+  <desc id="desc">Quell habit awareness and posture intelligence logo.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="560" y2="144" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B101A"/>
+      <stop offset="1" stop-color="#111A2A"/>
+    </linearGradient>
+    <linearGradient id="quell-gradient" x1="28" y1="24" x2="126" y2="124" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#49E0AC"/>
+      <stop offset="0.52" stop-color="#61D6D5"/>
+      <stop offset="1" stop-color="#5F94FF"/>
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="10"/>
+    </filter>
+  </defs>
+  <rect x="1" y="1" width="558" height="142" rx="28" fill="url(#background)" stroke="#263249" stroke-width="2"/>
+  <circle cx="72" cy="71" r="43" fill="#49E0AC" fill-opacity="0.14" filter="url(#glow)"/>
+  <circle cx="70" cy="67" r="34" fill="none" stroke="url(#quell-gradient)" stroke-width="11" stroke-linecap="round" stroke-dasharray="174 40" transform="rotate(-31 70 67)"/>
+  <path d="M86 84L111 109" fill="none" stroke="url(#quell-gradient)" stroke-width="11" stroke-linecap="round"/>
+  <path d="M52 68C57 60 64 57 72 57C80 57 86 61 91 68" fill="none" stroke="#F4F8FF" stroke-opacity="0.94" stroke-width="4.5" stroke-linecap="round"/>
+  <circle cx="48" cy="89" r="4" fill="#49E0AC"/>
+  <text x="142" y="77" fill="#F4F8FF" font-family="Inter, SF Pro Display, Helvetica Neue, Arial, sans-serif" font-size="52" font-weight="650" letter-spacing="3">QUELL</text>
+  <text x="145" y="104" fill="#91A0BB" font-family="Inter, SF Pro Text, Helvetica Neue, Arial, sans-serif" font-size="12" font-weight="600" letter-spacing="2.6">HABIT AWARENESS  ·  POSTURE INTELLIGENCE</text>
+</svg>

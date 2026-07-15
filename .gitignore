@@ -8,3 +8,6 @@ __pycache__/
 # Personal training data and fitted models
 *.csv
 *.pkl
+
+# Local behavior history
+quell_history.json
